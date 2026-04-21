@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+    <meta charset="UTF-8">
+    <title>Mistr Páčidlo: Minuta v dílně</title>
+    <style>
+        body { margin: 0; background: #1a1a1a; color: white; font-family: 'Segoe UI', sans-serif; overflow: hidden; display: flex; flex-direction: column; align-items: center; }
+        canvas { background: #333; border: 5px solid #444; cursor: crosshair; box-shadow: 0 0 40px rgba(0,0,0,0.8); }
+        .ui { padding: 15px; font-size: 22px; display: flex; gap: 40px; font-weight: bold; text-transform: uppercase; }
+        .record { color: #ffd700; }
+        #timer.warning { color: #ff4757; animation: blink 0.4s infinite; }
+        #boost-status { color: #f39c12; min-width: 120px; font-style: italic; }
+        @keyframes blink { 50% { opacity: 0.3; } }
+    </style>
+</head>
+<body>
+
+<div class="ui">
+    <div>Limit: <span id="timer">0.0</span>s</div>
+    <div>Flákači: <span id="count">0</span></div>
+    <div id="boost-status"></div>
+    <div class="record">Nejlepší čas: <span id="best">--</span>s</div>
+</div>
+<canvas id="gameCanvas"></canvas>
+
+<script>
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const timerEl = document.getElementById('timer');
+const countEl = document.getElementById('count');
+const bestEl = document.getElementById('best');
+const boostEl = document.getElementById('boost-status');
+
+// Optimální velikost pro cca minutu hraní
+canvas.width = 1000;
+canvas.height = 700;
+
+let slackers = [];
+let coffee = null;
+let player = { x: 500, y: 350, size: 18, baseSpeed: 5.5, speed: 5.5, isBoosted: false };
+let keys = {};
+let timeLeft, timerInterval;
+let gameActive = false;
+let bestTime = localStorage.getItem('bestTimeMinute') || Infinity;
+
+if(bestTime !== Infinity) bestEl.innerText = bestTime;
+
+class Slacker {
+    constructor() {
+        this.size = 22;
+        // Rozmístění po celé ploše s rezervou u okrajů
+        this.x = 40 + Math.random() * (canvas.width - 80);
+        this.y = 40 + Math.random() * (canvas.height - 80);
+        this.working = false;
+    }
+    draw() {
+        ctx.fillStyle = this.working ? '#2ecc71' : '#3498db';
+        ctx.fillRect(this.x, this.y, this.size, this.size);
+        if (!this.working) {
+            ctx.fillStyle = "white";
+            ctx.font = "11px Arial";
+            ctx.fillText("Zzz..", this.x, this.y - 5);
+        }
+    }
+}
+
+class Coffee {
+    constructor() {
+        this.size = 20;
+        this.x = 100 + Math.random() * (canvas.width - 200);
+        this.y = 100 + Math.random() * (canvas.height - 200);
+    }
+    draw() {
+        ctx.fillStyle = '#e67e22';
+        ctx.shadowBlur = 15;
+        ctx.shadowColor = '#f39c12';
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, 10, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = "white";
+        ctx.font = "bold 10px Arial";
+        ctx.fillText("KÁVA", this.x - 15, this.y - 15);
+    }
+}
+
+function initLevel() {
+    slackers = [];
+    coffee = null;
+    
+    // VYBALANCROVANÝ POČET: 12 až 18 lidí pro hru kolem minuty
+    let numSlackers = Math.floor(Math.random() * 7) + 12; 
+    for(let i = 0; i < numSlackers; i++) {
+        slackers.push(new Slacker());
+    }
+    
+    // Káva se objeví vždy po 5 sekundách pro pomoc
+    setTimeout(() => { if(gameActive) coffee = new Coffee(); }, 5000);
+
+    player.x = canvas.width / 2;
+    player.y = canvas.height / 2;
+    player.speed = player.baseSpeed;
+    player.isBoosted = false;
+    boostEl.innerText = "";
+    
+    countEl.innerText = slackers.length;
+    
+    // VYBALANCROVANÝ ČAS: 4s na jednoho flákače (např. 15 lidí = 60s)
+    timeLeft = slackers.length * 4;
+    gameActive = true;
+    timerEl.classList.remove('warning');
+
+    if(timerInterval) clearInterval(timerInterval);
+    timerInterval = setInterval(() => {
+        timeLeft -= 0.1;
+        if (timeLeft <= 0) {
+            timeLeft = 0;
+            gameOver();
+        }
+        timerEl.innerText = timeLeft.toFixed(1);
+        if (timeLeft < 7) timerEl.classList.add('warning');
+    }, 100);
+}
+
+function activateBoost() {
+    player.isBoosted = true;
+    player.speed = player.baseSpeed * 1.8;
+    boostEl.innerText = "⚡ KOFEIN!";
+    coffee = null;
+    setTimeout(() => {
+        player.isBoosted = false;
+        player.speed = player.baseSpeed;
+        boostEl.innerText = "";
+    }, 6000);
+}
+
+function gameOver() {
+    gameActive = false;
+    clearInterval(timerInterval);
+    alert("VYHAZOV! Firma zkrachovala, protože flákači vyhráli.");
+    initLevel();
+}
+
+function checkWin() {
+    let remaining = slackers.filter(s => !s.working).length;
+    countEl.innerText = remaining;
+
+    if (remaining === 0) {
+        gameActive = false;
+        clearInterval(timerInterval);
+        
+        let totalLimit = slackers.length * 4;
+        let timeTaken = parseFloat((totalLimit - timeLeft).toFixed(1));
+        
+        if (timeTaken < bestTime) {
+            bestTime = timeTaken;
+            localStorage.setItem('bestTimeMinute', bestTime);
+            bestEl.innerText = bestTime;
+            alert(`ŠÉF ROKU! Nový rekord: ${timeTaken}s!`);
+        } else {
+            alert(`Hotovo! Čas: ${timeTaken}s. Tvůj nejlepší: ${bestTime}s.`);
+        }
+        initLevel();
+    }
+}
+
+function update() {
+    if (!gameActive) return;
+
+    if (keys['ArrowUp'] || keys['w']) player.y -= player.speed;
+    if (keys['ArrowDown'] || keys['s']) player.y += player.speed;
+    if (keys['ArrowLeft'] || keys['a']) player.x -= player.speed;
+    if (keys['ArrowRight'] || keys['d']) player.x += player.speed;
+
+    player.x = Math.max(player.size, Math.min(canvas.width - player.size, player.x));
+    player.y = Math.max(player.size, Math.min(canvas.height - player.size, player.y));
+
+    if (coffee) {
+        let dx = player.x - coffee.x;
+        let dy = player.y - coffee.y;
+        if (Math.sqrt(dx*dx + dy*dy) < 25) activateBoost();
+    }
+
+    slackers.forEach(s => {
+        if (!s.working) {
+            let dx = player.x - (s.x + s.size/2);
+            let dy = player.y - (s.y + s.size/2);
+            if (Math.sqrt(dx*dx + dy*dy) < 35) {
+                s.working = true;
+                checkWin();
+            }
+        }
+    });
+}
+
+function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    
+    // Podlaha
+    ctx.strokeStyle = '#252525';
+    for(let i=0; i<canvas.width; i+=50) {
+        ctx.beginPath(); ctx.moveTo(i,0); ctx.lineTo(i,canvas.height); ctx.stroke();
+    }
+
+    if (coffee) coffee.draw();
+    slackers.forEach(s => s.draw());
+
+    // Hráč
+    ctx.fillStyle = player.isBoosted ? '#f1c40f' : '#e74c3c';
+    ctx.beginPath();
+    ctx.arc(player.x, player.y, player.size, 0, Math.PI * 2);
+    ctx.fill();
+    
+    // Páčidlo
+    ctx.strokeStyle = '#bdc3c7';
+    ctx.lineWidth = 5;
+    ctx.beginPath();
+    ctx.moveTo(player.x, player.y);
+    ctx.lineTo(player.x + 25, player.y - 15);
+    ctx.stroke();
+
+    update();
+    requestAnimationFrame(draw);
+}
+
+window.addEventListener('keydown', e => keys[e.key] = true);
+window.addEventListener('keyup', e => keys[e.key] = false);
+
+initLevel();
+draw();
+</script>
+</body>
+</html>
